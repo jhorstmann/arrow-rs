@@ -216,7 +216,6 @@ impl<T: ArrowNativeType> BufferBuilder<T> {
     /// ```
     #[inline]
     pub fn append(&mut self, v: T) {
-        self.reserve(1);
         self.buffer.push(v);
         self.len += 1;
     }
@@ -236,7 +235,6 @@ impl<T: ArrowNativeType> BufferBuilder<T> {
     /// ```
     #[inline]
     pub fn append_n(&mut self, n: usize, v: T) {
-        self.reserve(n);
         for _ in 0..n {
             self.buffer.push(v);
         }
