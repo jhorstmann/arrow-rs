@@ -23,7 +23,6 @@ use std::{
     mem,
     ops::{Index, IndexMut},
     sync::{
-        atomic::{AtomicI64, Ordering},
         Arc, Weak,
     },
 };
@@ -61,7 +60,7 @@ impl MemTracker {
 
     /// Adds `num_bytes` to the memory consumption tracked by this memory tracker.
     #[inline]
-    pub fn alloc(&self, num_bytes: i64) {
+    pub fn alloc(&self, _num_bytes: i64) {
     }
 }
 
@@ -263,8 +262,6 @@ pub struct BufferPtr<T> {
     data: Arc<Vec<T>>,
     start: usize,
     len: usize,
-    // TODO: will this create too many references? rethink about this.
-    mem_tracker: Option<MemTrackerPtr>,
 }
 
 impl<T> BufferPtr<T> {
@@ -275,7 +272,6 @@ impl<T> BufferPtr<T> {
             data: Arc::new(v),
             start: 0,
             len,
-            mem_tracker: None,
         }
     }
 
@@ -305,8 +301,7 @@ impl<T> BufferPtr<T> {
     }
 
     /// Adds memory tracker to this buffer.
-    pub fn with_mem_tracker(mut self, mc: MemTrackerPtr) -> Self {
-        self.mem_tracker = Some(mc);
+    pub fn with_mem_tracker(mut self, _mc: MemTrackerPtr) -> Self {
         self
     }
 
@@ -330,7 +325,7 @@ impl<T> BufferPtr<T> {
 
     /// Returns `true` if this buffer has memory tracker, `false` otherwise.
     pub fn is_mem_tracked(&self) -> bool {
-        self.mem_tracker.is_some()
+        false
     }
 
     /// Returns a shallow copy of the buffer.
@@ -340,7 +335,6 @@ impl<T> BufferPtr<T> {
             data: self.data.clone(),
             start: self.start,
             len: self.len,
-            mem_tracker: self.mem_tracker.as_ref().cloned(),
         }
     }
 
@@ -351,7 +345,6 @@ impl<T> BufferPtr<T> {
             data: self.data.clone(),
             start: self.start + start,
             len: self.len - start,
-            mem_tracker: self.mem_tracker.as_ref().cloned(),
         }
     }
 
@@ -362,7 +355,6 @@ impl<T> BufferPtr<T> {
             data: self.data.clone(),
             start: self.start + start,
             len,
-            mem_tracker: self.mem_tracker.as_ref().cloned(),
         }
     }
 }
@@ -379,16 +371,6 @@ impl<T: Sized> Index<usize> for BufferPtr<T> {
 impl<T: Debug> Display for BufferPtr<T> {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", self.data)
-    }
-}
-
-impl<T> Drop for BufferPtr<T> {
-    fn drop(&mut self) {
-        if let Some(ref mc) = self.mem_tracker {
-            if Arc::strong_count(&self.data) == 1 && Arc::weak_count(&self.data) == 0 {
-                mc.alloc(-(self.data.capacity() as i64));
-            }
-        }
     }
 }
 
