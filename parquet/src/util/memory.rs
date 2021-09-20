@@ -39,10 +39,6 @@ pub type WeakMemTrackerPtr = Weak<MemTracker>;
 /// Struct to track memory usage information.
 #[derive(Debug)]
 pub struct MemTracker {
-    // In the tuple, the first element is the current memory allocated (in bytes),
-    // and the second element is the maximum memory allocated so far (in bytes).
-    current_memory_usage: AtomicI64,
-    max_memory_usage: AtomicI64,
 }
 
 impl MemTracker {
@@ -50,30 +46,22 @@ impl MemTracker {
     #[inline]
     pub fn new() -> MemTracker {
         MemTracker {
-            current_memory_usage: Default::default(),
-            max_memory_usage: Default::default(),
         }
     }
 
     /// Returns the current memory consumption, in bytes.
     pub fn memory_usage(&self) -> i64 {
-        self.current_memory_usage.load(Ordering::Acquire)
+        0
     }
 
     /// Returns the maximum memory consumption so far, in bytes.
     pub fn max_memory_usage(&self) -> i64 {
-        self.max_memory_usage.load(Ordering::Acquire)
+        0
     }
 
     /// Adds `num_bytes` to the memory consumption tracked by this memory tracker.
     #[inline]
     pub fn alloc(&self, num_bytes: i64) {
-        let new_current = self
-            .current_memory_usage
-            .fetch_add(num_bytes, Ordering::Acquire)
-            + num_bytes;
-        self.max_memory_usage
-            .fetch_max(new_current, Ordering::Acquire);
     }
 }
 
