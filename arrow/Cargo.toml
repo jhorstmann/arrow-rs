@@ -165,3 +165,7 @@ harness = false
 [[bench]]
 name = "buffer_create"
 harness = false
+
+[[bench]]
+name = "array_access"
+harness = false

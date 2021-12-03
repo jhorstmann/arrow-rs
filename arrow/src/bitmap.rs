@@ -44,23 +44,28 @@ impl Bitmap {
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.bits.len() * 8
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.bits.is_empty()
     }
 
+    #[inline]
     pub fn is_set(&self, i: usize) -> bool {
         assert!(i < (self.bits.len() << 3));
         unsafe { bit_util::get_bit_raw(self.bits.as_ptr(), i) }
     }
 
+    #[inline]
     pub fn buffer_ref(&self) -> &Buffer {
         &self.bits
     }
 
+    #[inline]
     pub fn into_buffer(self) -> Buffer {
         self.bits
     }

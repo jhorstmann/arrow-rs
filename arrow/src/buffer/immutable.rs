@@ -114,6 +114,7 @@ impl Buffer {
     }
 
     /// Returns the number of bytes in the buffer
+    #[inline]
     pub fn len(&self) -> usize {
         self.data.len() - self.offset
     }
@@ -153,6 +154,7 @@ impl Buffer {
     ///
     /// Note that this should be used cautiously, and the returned pointer should not be
     /// stored anywhere, to avoid dangling pointers.
+    #[inline]
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { self.data.ptr().as_ptr().add(self.offset) }
     }
