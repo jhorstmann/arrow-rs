@@ -91,7 +91,7 @@ impl BooleanBuilder {
     #[inline]
     pub fn append_null(&mut self) {
         self.null_buffer_builder.append_null();
-        self.values_builder.advance(1);
+        self.values_builder.advance1();
     }
 
     /// Appends `n` `null`s into the builder.

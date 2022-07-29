@@ -69,7 +69,7 @@ impl NullBufferBuilder {
     /// to indicate that these `n` items are nulls.
     #[inline]
     pub fn append_n_nulls(&mut self, n: usize) {
-        self.materialize_if_needed();
+        self.materialize_if_needed(n);
         self.bitmap_builder.as_mut().unwrap().append_n(n, false);
     }
 
@@ -77,7 +77,7 @@ impl NullBufferBuilder {
     /// to indicate that this item is null.
     #[inline]
     pub fn append_null(&mut self) {
-        self.materialize_if_needed();
+        self.materialize_if_needed(1);
         self.bitmap_builder.as_mut().unwrap().append(false);
     }
 
@@ -95,7 +95,7 @@ impl NullBufferBuilder {
     /// to indicate the validations of these items.
     pub fn append_slice(&mut self, slice: &[bool]) {
         if slice.iter().any(|v| !v) {
-            self.materialize_if_needed()
+            self.materialize_if_needed(slice.len())
         }
         if let Some(buf) = self.bitmap_builder.as_mut() {
             buf.append_slice(slice)
@@ -113,17 +113,18 @@ impl NullBufferBuilder {
         buf
     }
 
-    #[inline]
-    fn materialize_if_needed(&mut self) {
+    #[inline(always)]
+    fn materialize_if_needed(&mut self, additional: usize) {
         if self.bitmap_builder.is_none() {
-            self.materialize()
+            self.materialize(additional)
         }
     }
 
     #[cold]
-    fn materialize(&mut self) {
+    fn materialize(&mut self, additional: usize) {
         if self.bitmap_builder.is_none() {
-            let mut b = BooleanBufferBuilder::new(self.len.max(self.capacity));
+            let mut b =
+                BooleanBufferBuilder::new((self.len + additional).max(self.capacity));
             b.append_n(self.len, true);
             self.bitmap_builder = Some(b);
         }

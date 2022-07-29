@@ -64,12 +64,26 @@ impl BooleanBufferBuilder {
         self.buffer.capacity() * 8
     }
 
+    /// Resize so the builder can contain at least `additional` new bits and initialize the `additional` bits with zero.
     #[inline]
     pub fn advance(&mut self, additional: usize) {
         let new_len = self.len + additional;
         let new_len_bytes = bit_util::ceil(new_len, 8);
         if new_len_bytes > self.buffer.len() {
             self.buffer.resize(new_len_bytes, 0);
+        }
+        self.len = new_len;
+    }
+
+    /// Resize so the builder can contain at least 1 additional bit and initialize the that bit with zero.
+    /// This can be slightly more efficient than `advance(usize)` since the compiler will know that
+    /// at most one byte needs to be initialized with zero.
+    #[inline]
+    pub(crate) fn advance1(&mut self) {
+        let new_len = self.len + 1;
+        let new_len_bytes = bit_util::ceil(new_len, 8);
+        if new_len_bytes > self.buffer.len() {
+            self.buffer.resize(self.buffer.len() + 1, 0);
         }
         self.len = new_len;
     }
@@ -98,7 +112,7 @@ impl BooleanBufferBuilder {
 
     #[inline]
     pub fn append(&mut self, v: bool) {
-        self.advance(1);
+        self.advance1();
         if v {
             unsafe { bit_util::set_bit_raw(self.buffer.as_mut_ptr(), self.len - 1) };
         }
