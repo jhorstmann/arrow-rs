@@ -23,6 +23,7 @@ use arrow_buffer::bit_chunk_iterator::BitChunks;
 use arrow_buffer::{bit_util, ArrowNativeType, Buffer, MutableBuffer};
 use arrow_schema::{ArrowError, DataType, IntervalUnit, UnionMode};
 use half::f16;
+use std::backtrace::Backtrace;
 use std::convert::TryInto;
 use std::mem;
 use std::ops::Range;
@@ -347,10 +348,12 @@ impl ArrayData {
         if let Some(null_bit_buffer) = null_bit_buffer.as_ref() {
             let needed_len = bit_util::ceil(len + offset, 8);
             if null_bit_buffer.len() < needed_len {
+                let bt = Backtrace::capture();
                 return Err(ArrowError::InvalidArgumentError(format!(
-                    "null_bit_buffer size too small. got {} needed {}",
+                    "null_bit_buffer size too small. got {} needed {}. backtrace: {}",
                     null_bit_buffer.len(),
-                    needed_len
+                    needed_len,
+                    bt,
                 )));
             }
         }
