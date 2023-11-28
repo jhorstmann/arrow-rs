@@ -40,6 +40,30 @@ trait NumericAccumulator<T: ArrowNativeTypeOp>: Copy + Default {
     fn finish(&mut self) -> T;
 }
 
+trait Bitmask {
+    fn from_u64(bits: u64) -> Self;
+    fn test(&self, bit: usize) -> bool;
+}
+
+macro_rules! impl_bitmask {
+    ($t:ty) => {
+        impl Bitmask for $t {
+            fn from_u64(bits: u64) -> Self {
+                bits as $t
+            }
+
+            fn test(&self, bit: usize) -> bool {
+                (*self & (1 << bit)) != 0
+            }
+        }
+    }
+}
+
+impl_bitmask!(u8);
+impl_bitmask!(u16);
+impl_bitmask!(u32);
+impl_bitmask!(u64);
+
 /// Helper for branchlessly selecting either `a` or `b` based on the boolean `m`.
 /// After verifying the generated assembly this can be a simple `if`.
 #[inline(always)]
@@ -68,8 +92,9 @@ impl<T: ArrowNativeTypeOp> NumericAccumulator<T> for SumAccumulator<T> {
     }
 
     fn accumulate_nullable(&mut self, value: T, valid: bool) {
-        let sum = self.sum;
-        self.sum = select(valid, sum.add_wrapping(value), sum)
+        // let sum = self.sum;
+        // self.sum = select(valid, sum.add_wrapping(value), sum)
+        self.sum = self.sum.add_wrapping(select(valid, value, T::default()))
     }
 
     fn merge(&mut self, other: Self) {
@@ -180,15 +205,13 @@ fn aggregate_nonnull_chunk<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const
 }
 
 #[inline(always)]
-fn aggregate_nullable_chunk<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const LANES: usize>(
+fn aggregate_nullable_chunk<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: Bitmask, const LANES: usize>(
     acc: &mut [A; LANES],
     values: &[T; LANES],
-    validity: u64,
+    validity: B,
 ) {
-    let mut bit = 1;
     for i in 0..LANES {
-        acc[i].accumulate_nullable(values[i], (validity & bit) != 0);
-        bit <<= 1;
+        acc[i].accumulate_nullable(values[i], validity.test(i));
     }
 }
 
@@ -224,7 +247,7 @@ fn aggregate_nonnull_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const
 }
 
 #[inline(never)]
-fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const LANES: usize>(
+fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: Bitmask, const LANES: usize>(
     values: &[T],
     validity: &NullBuffer,
 ) -> T {
@@ -243,7 +266,7 @@ fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, cons
         let mut validity = unsafe { validity_chunks_iter.next().unwrap_unchecked() };
         // chunk further based on the number of vector lanes
         chunk.chunks_exact(LANES).for_each(|chunk| {
-            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), validity);
+            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), B::from_u64(validity));
             validity >>= LANES;
         });
     });
@@ -254,16 +277,15 @@ fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, cons
 
         let mut remainder_chunks = remainder.chunks_exact(LANES);
         remainder_chunks.borrow_mut().for_each(|chunk| {
-            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), validity);
+            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), B::from_u64(validity));
             validity >>= LANES;
         });
 
         let remainder = remainder_chunks.remainder();
         if !remainder.is_empty() {
-            let mut bit = 1;
+            let mask = B::from_u64(validity);
             for i in 0..remainder.len() {
-                acc[i].accumulate_nullable(remainder[i], (validity & bit) != 0);
-                bit <<= 1;
+                acc[i].accumulate_nullable(remainder[i], mask.test(i));
             }
         }
     }
@@ -299,14 +321,12 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
         Some(nulls) if null_count > 0 => {
             // const generics depending on a generic type parameter are not supported
             // so we have to match and call aggregate with the corresponding constant
-            match PREFERRED_VECTOR_SIZE / std::mem::size_of::<T>() {
-                64 => Some(aggregate_nullable_lanes::<T, A, 64>(values, nulls)),
-                32 => Some(aggregate_nullable_lanes::<T, A, 32>(values, nulls)),
-                16 => Some(aggregate_nullable_lanes::<T, A, 16>(values, nulls)),
-                8 => Some(aggregate_nullable_lanes::<T, A, 8>(values, nulls)),
-                4 => Some(aggregate_nullable_lanes::<T, A, 4>(values, nulls)),
-                2 => Some(aggregate_nullable_lanes::<T, A, 2>(values, nulls)),
-                _ => Some(aggregate_nullable_lanes::<T, A, 1>(values, nulls)),
+            match std::mem::size_of::<T>() {
+                8 => Some(aggregate_nullable_lanes::<T, A, u64, 16>(values, nulls)),
+                4 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
+                2 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
+                1 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
+                _ => Some(aggregate_nullable_lanes::<T, A, u32, 1>(values, nulls)),
             }
         }
         _ => {
@@ -315,13 +335,11 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
                 DataType::Float16 | DataType::Float32 | DataType::Float64
             );
             if is_float {
-                match PREFERRED_VECTOR_SIZE_NON_NULL / std::mem::size_of::<T>() {
-                    64 => Some(aggregate_nonnull_lanes::<T, A, 64>(values)),
-                    32 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
-                    16 => Some(aggregate_nonnull_lanes::<T, A, 16>(values)),
-                    8 => Some(aggregate_nonnull_lanes::<T, A, 8>(values)),
-                    4 => Some(aggregate_nonnull_lanes::<T, A, 4>(values)),
-                    2 => Some(aggregate_nonnull_lanes::<T, A, 2>(values)),
+                match std::mem::size_of::<T>() {
+                    8 => Some(aggregate_nonnull_lanes::<T, A, 16>(values)),
+                    4 => Some(aggregate_nonnull_lanes::<T, A, 16>(values)),
+                    2 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
+                    1 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
                     _ => Some(aggregate_nonnull_simple::<T, A>(values)),
                 }
             } else {
