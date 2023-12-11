@@ -48,10 +48,12 @@ trait Bitmask {
 macro_rules! impl_bitmask {
     ($t:ty) => {
         impl Bitmask for $t {
+            #[inline(always)]
             fn from_u64(bits: u64) -> Self {
                 bits as $t
             }
 
+            #[inline(always)]
             fn test(&self, bit: usize) -> bool {
                 (*self & (1 << bit)) != 0
             }
@@ -324,7 +326,7 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
             match std::mem::size_of::<T>() {
                 8 => Some(aggregate_nullable_lanes::<T, A, u64, 16>(values, nulls)),
                 4 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
-                2 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
+                2 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
                 1 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
                 _ => Some(aggregate_nullable_lanes::<T, A, u32, 1>(values, nulls)),
             }
