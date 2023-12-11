@@ -325,7 +325,7 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
                 8 => Some(aggregate_nullable_lanes::<T, A, u64, 16>(values, nulls)),
                 4 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
                 2 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
-                1 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
+                1 => Some(aggregate_nullable_lanes::<T, A, u64, 64>(values, nulls)),
                 _ => Some(aggregate_nullable_lanes::<T, A, u32, 1>(values, nulls)),
             }
         }
@@ -336,8 +336,8 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
             );
             if is_float {
                 match std::mem::size_of::<T>() {
-                    8 => Some(aggregate_nonnull_lanes::<T, A, 16>(values)),
-                    4 => Some(aggregate_nonnull_lanes::<T, A, 16>(values)),
+                    8 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
+                    4 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
                     2 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
                     1 => Some(aggregate_nonnull_lanes::<T, A, 32>(values)),
                     _ => Some(aggregate_nonnull_simple::<T, A>(values)),
