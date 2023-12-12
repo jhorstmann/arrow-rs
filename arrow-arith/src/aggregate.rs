@@ -55,10 +55,10 @@ macro_rules! impl_bitmask {
 
             #[inline(always)]
             fn test(&self, bit: usize) -> bool {
-                (*self & (1 << bit)) != 0
+                ((*self as u64) & (1 << bit)) != 0
             }
         }
-    }
+    };
 }
 
 impl_bitmask!(u8);
@@ -207,7 +207,12 @@ fn aggregate_nonnull_chunk<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const
 }
 
 #[inline(always)]
-fn aggregate_nullable_chunk<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: Bitmask, const LANES: usize>(
+fn aggregate_nullable_chunk<
+    T: ArrowNativeTypeOp,
+    A: NumericAccumulator<T>,
+    B: Bitmask,
+    const LANES: usize,
+>(
     acc: &mut [A; LANES],
     values: &[T; LANES],
     validity: B,
@@ -249,7 +254,12 @@ fn aggregate_nonnull_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, const
 }
 
 #[inline(never)]
-fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: Bitmask, const LANES: usize>(
+fn aggregate_nullable_lanes<
+    T: ArrowNativeTypeOp,
+    A: NumericAccumulator<T>,
+    B: Bitmask,
+    const LANES: usize,
+>(
     values: &[T],
     validity: &NullBuffer,
 ) -> T {
@@ -268,7 +278,11 @@ fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: B
         let mut validity = unsafe { validity_chunks_iter.next().unwrap_unchecked() };
         // chunk further based on the number of vector lanes
         chunk.chunks_exact(LANES).for_each(|chunk| {
-            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), B::from_u64(validity));
+            aggregate_nullable_chunk(
+                &mut acc,
+                chunk[..LANES].try_into().unwrap(),
+                B::from_u64(validity),
+            );
             validity >>= LANES;
         });
     });
@@ -279,7 +293,11 @@ fn aggregate_nullable_lanes<T: ArrowNativeTypeOp, A: NumericAccumulator<T>, B: B
 
         let mut remainder_chunks = remainder.chunks_exact(LANES);
         remainder_chunks.borrow_mut().for_each(|chunk| {
-            aggregate_nullable_chunk(&mut acc, chunk[..LANES].try_into().unwrap(), B::from_u64(validity));
+            aggregate_nullable_chunk(
+                &mut acc,
+                chunk[..LANES].try_into().unwrap(),
+                B::from_u64(validity),
+            );
             validity >>= LANES;
         });
 
@@ -324,11 +342,11 @@ fn aggregate<T: ArrowNativeTypeOp, P: ArrowPrimitiveType<Native = T>, A: Numeric
             // const generics depending on a generic type parameter are not supported
             // so we have to match and call aggregate with the corresponding constant
             match std::mem::size_of::<T>() {
-                8 => Some(aggregate_nullable_lanes::<T, A, u64, 16>(values, nulls)),
-                4 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
-                2 => Some(aggregate_nullable_lanes::<T, A, u32, 16>(values, nulls)),
-                1 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
-                _ => Some(aggregate_nullable_lanes::<T, A, u32, 1>(values, nulls)),
+                8 => Some(aggregate_nullable_lanes::<T, A, u8, 8>(values, nulls)),
+                4 => Some(aggregate_nullable_lanes::<T, A, u16, 16>(values, nulls)),
+                2 => Some(aggregate_nullable_lanes::<T, A, u32, 32>(values, nulls)),
+                1 => Some(aggregate_nullable_lanes::<T, A, u64, 64>(values, nulls)),
+                _ => Some(aggregate_nullable_lanes::<T, A, u8, 1>(values, nulls)),
             }
         }
         _ => {
