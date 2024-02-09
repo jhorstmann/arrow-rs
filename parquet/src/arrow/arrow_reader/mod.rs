@@ -725,7 +725,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::fmt::Formatter;
     use std::fs::File;
-    use std::io::Seek;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -733,7 +732,6 @@ mod tests {
     use half::f16;
     use num::PrimInt;
     use rand::{thread_rng, Rng, RngCore};
-    use tempfile::tempfile;
 
     use arrow_array::builder::*;
     use arrow_array::cast::AsArray;
@@ -795,7 +793,7 @@ mod tests {
 
     #[test]
     fn test_null_column_reader_test() {
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
         let schema = "
             message message {
@@ -808,16 +806,14 @@ mod tests {
         generate_single_column_file_with_data::<Int32Type>(
             &[vec![], vec![]],
             Some(&def_levels),
-            file.try_clone().unwrap(), // Cannot use &mut File (#1163)
+            &mut file,
             schema,
             Some(Field::new("int32", ArrowDataType::Null, true)),
             &Default::default(),
         )
         .unwrap();
 
-        file.rewind().unwrap();
-
-        let record_reader = ParquetRecordBatchReader::try_new(file, 2).unwrap();
+        let record_reader = ParquetRecordBatchReader::try_new(Bytes::from(file), 2).unwrap();
         let batches = record_reader.collect::<Result<Vec<_>, _>>().unwrap();
 
         assert_eq!(batches.len(), 4);
@@ -833,6 +829,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_primitive_single_column_reader_test() {
         run_single_column_reader_tests::<BoolType, _, BoolType>(
             2,
@@ -873,6 +870,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_unsigned_primitive_single_column_reader_test() {
         run_single_column_reader_tests::<Int32Type, _, Int32Type>(
             2,
@@ -1023,6 +1021,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_fixed_length_binary_column_reader() {
         run_single_column_reader_tests::<FixedLenByteArrayType, _, RandFixedLenGen>(
             20,
@@ -1043,6 +1042,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_interval_day_time_column_reader() {
         run_single_column_reader_tests::<FixedLenByteArrayType, _, RandFixedLenGen>(
             12,
@@ -1063,6 +1063,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_int96_single_column_reader_test() {
         let encodings = &[Encoding::PLAIN, Encoding::RLE_DICTIONARY];
         run_single_column_reader_tests::<Int96Type, _, Int96Type>(
@@ -1087,6 +1088,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_utf8_single_column_reader_test() {
         fn string_converter<O: OffsetSizeTrait>(vals: &[Option<ByteArray>]) -> ArrayRef {
             Arc::new(GenericStringArray::<O>::from_iter(vals.iter().map(|x| {
@@ -1400,6 +1402,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // zstd compression uses ffi which is not supported by miri
     fn test_read_float32_float64_byte_stream_split() {
         let path = format!(
             "{}/byte_stream_split.zstd.parquet",
@@ -1737,7 +1740,14 @@ mod tests {
                 .with_row_selections(),
         ];
 
-        all_options.into_iter().for_each(|opts| {
+        // all tests take much too long to run with miri
+        let options = if cfg!(miri) {
+            all_options
+        } else {
+            vec![TestOptions::new(1, 1, 1)]
+        };
+
+        options.into_iter().for_each(|opts| {
             for writer_version in [WriterVersion::PARQUET_1_0, WriterVersion::PARQUET_2_0] {
                 for encoding in encodings {
                     let opts = TestOptions {
@@ -1832,25 +1842,24 @@ mod tests {
 
         let arrow_field = arrow_type.map(|t| Field::new("leaf", t, false));
 
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = Vec::with_capacity(512);
 
         generate_single_column_file_with_data::<T>(
             &values,
             def_levels.as_ref(),
-            file.try_clone().unwrap(), // Cannot use &mut File (#1163)
+            &mut file,
             schema,
             arrow_field,
             &opts,
         )
         .unwrap();
 
-        file.rewind().unwrap();
-
         let options = ArrowReaderOptions::new()
             .with_page_index(opts.enabled_statistics == EnabledStatistics::Page);
 
         let mut builder =
-            ParquetRecordBatchReaderBuilder::try_new_with_options(file, options).unwrap();
+            ParquetRecordBatchReaderBuilder::try_new_with_options(Bytes::from(file), options)
+                .unwrap();
 
         let expected_data = match opts.row_selections {
             Some((selections, row_count)) => {
@@ -1975,7 +1984,7 @@ mod tests {
     fn generate_single_column_file_with_data<T: DataType>(
         values: &[Vec<T::T>],
         def_levels: Option<&Vec<Vec<i16>>>,
-        file: File,
+        file: &mut Vec<u8>,
         schema: TypePtr,
         field: Option<Field>,
         opts: &TestOptions,
@@ -2017,6 +2026,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // zstd compression uses ffi which is not supported by miri
     fn test_read_structs() {
         // This particular test file has columns of struct types where there is
         // a column that has the same name as one of the struct fields
@@ -2089,14 +2099,13 @@ mod tests {
           }
         }";
 
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::default();
         let schema = Arc::new(parse_message_type(message_type).unwrap());
 
         {
             // Write using low-level parquet API (#1167)
             let mut writer =
-                SerializedFileWriter::new(file.try_clone().unwrap(), schema, Default::default())
-                    .unwrap();
+                SerializedFileWriter::new(&mut file, schema, Default::default()).unwrap();
 
             {
                 let mut row_group_writer = writer.next_row_group().unwrap();
@@ -2114,7 +2123,7 @@ mod tests {
             writer.close().unwrap();
         }
 
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(file)).unwrap();
         let mask = ProjectionMask::leaves(builder.parquet_schema(), [0]);
 
         let reader = builder.with_projection(mask).build().unwrap();
@@ -2185,7 +2194,7 @@ mod tests {
 
         let arrow_field = Field::new("leaf", dict_type, true);
 
-        let mut file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
         let values = vec![
             vec![
@@ -2214,16 +2223,14 @@ mod tests {
         generate_single_column_file_with_data::<ByteArrayType>(
             &values,
             Some(&def_levels),
-            file.try_clone().unwrap(), // Cannot use &mut File (#1163)
+            &mut file,
             schema,
             Some(arrow_field),
             &opts,
         )
         .unwrap();
 
-        file.rewind().unwrap();
-
-        let record_reader = ParquetRecordBatchReader::try_new(file, 3).unwrap();
+        let record_reader = ParquetRecordBatchReader::try_new(Bytes::from(file), 3).unwrap();
 
         let batches = record_reader
             .collect::<Result<Vec<RecordBatch>, _>>()
@@ -2320,13 +2327,11 @@ mod tests {
                 .set_writer_version(version)
                 .build();
 
-            let file = tempfile().unwrap();
-            let mut writer =
-                ArrowWriter::try_new(file.try_clone().unwrap(), batch.schema(), Some(props))
-                    .unwrap();
+            let mut file = Vec::new();
+            let mut writer = ArrowWriter::try_new(&mut file, batch.schema(), Some(props)).unwrap();
             writer.write(&batch).unwrap();
             writer.close().unwrap();
-            file
+            Bytes::from(file)
         };
 
         let skip_options = ArrowReaderOptions::new().with_skip_arrow_metadata(true);
@@ -2334,8 +2339,7 @@ mod tests {
         let v1_reader = file(WriterVersion::PARQUET_1_0);
         let v2_reader = file(WriterVersion::PARQUET_2_0);
 
-        let arrow_reader =
-            ParquetRecordBatchReader::try_new(v1_reader.try_clone().unwrap(), 1024).unwrap();
+        let arrow_reader = ParquetRecordBatchReader::try_new(v1_reader.clone(), 1024).unwrap();
         assert_eq!(arrow_reader.schema(), schema_with_metadata);
 
         let reader =
@@ -2345,8 +2349,7 @@ mod tests {
                 .unwrap();
         assert_eq!(reader.schema(), schema_without_metadata);
 
-        let arrow_reader =
-            ParquetRecordBatchReader::try_new(v2_reader.try_clone().unwrap(), 1024).unwrap();
+        let arrow_reader = ParquetRecordBatchReader::try_new(v2_reader.clone(), 1024).unwrap();
         assert_eq!(arrow_reader.schema(), schema_with_metadata);
 
         let reader = ParquetRecordBatchReaderBuilder::try_new_with_options(v2_reader, skip_options)
@@ -2427,6 +2430,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_row_group_exact_multiple() {
         const BATCH_SIZE: usize = REPETITION_LEVELS_BATCH_SIZE;
         test_row_group_batch(8, 8);
@@ -2524,6 +2528,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_scan_row_with_selection() {
         let testdata = arrow::util::test_util::parquet_test_data();
         let path = format!("{testdata}/alltypes_tiny_pages_plain.parquet");
@@ -2596,6 +2601,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_read_with_page_index_enabled() {
         let testdata = arrow::util::test_util::parquet_test_data();
 
@@ -2996,6 +3002,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // takes too long to run
     fn test_list_selection_fuzz() {
         let mut rng = thread_rng();
         let schema = Arc::new(Schema::new(vec![Field::new_list(

@@ -950,7 +950,6 @@ mod tests {
     use super::*;
 
     use bytes::Bytes;
-    use std::fs::File;
     use std::sync::Arc;
 
     use crate::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
@@ -1477,7 +1476,7 @@ mod tests {
 
         let batch = RecordBatch::try_new(schema, vec![array]).unwrap();
 
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
         // Set everything very low so we fallback to PLAIN encoding after the first row
         let props = WriterProperties::builder()
@@ -1486,13 +1485,14 @@ mod tests {
             .set_write_batch_size(1)
             .build();
 
-        let mut writer =
-            ArrowWriter::try_new(file.try_clone().unwrap(), batch.schema(), Some(props))
-                .expect("Unable to write file");
+        let mut writer = ArrowWriter::try_new(&mut file, batch.schema(), Some(props))
+            .expect("Unable to write file");
         writer.write(&batch).unwrap();
         writer.close().unwrap();
 
-        let reader = SerializedFileReader::new(file.try_clone().unwrap()).unwrap();
+        let file = Bytes::from(file);
+
+        let reader = SerializedFileReader::new(file.clone()).unwrap();
 
         let column = reader.metadata().row_group(0).columns();
 
@@ -1521,7 +1521,7 @@ mod tests {
     const SMALL_SIZE: usize = 7;
     const MEDIUM_SIZE: usize = 63;
 
-    fn roundtrip(expected_batch: RecordBatch, max_row_group_size: Option<usize>) -> Vec<File> {
+    fn roundtrip(expected_batch: RecordBatch, max_row_group_size: Option<usize>) -> Vec<Bytes> {
         let mut files = vec![];
         for version in [WriterVersion::PARQUET_1_0, WriterVersion::PARQUET_2_0] {
             let mut props = WriterProperties::builder().set_writer_version(version);
@@ -1540,23 +1540,21 @@ mod tests {
         expected_batch: &RecordBatch,
         props: WriterProperties,
         validate: F,
-    ) -> File
+    ) -> Bytes
     where
         F: Fn(&ArrayData, &ArrayData),
     {
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
-        let mut writer = ArrowWriter::try_new(
-            file.try_clone().unwrap(),
-            expected_batch.schema(),
-            Some(props),
-        )
-        .expect("Unable to write file");
+        let mut writer = ArrowWriter::try_new(&mut file, expected_batch.schema(), Some(props))
+            .expect("Unable to write file");
         writer.write(expected_batch).unwrap();
         writer.close().unwrap();
 
+        let file = Bytes::from(file);
+
         let mut record_batch_reader =
-            ParquetRecordBatchReader::try_new(file.try_clone().unwrap(), 1024).unwrap();
+            ParquetRecordBatchReader::try_new(file.clone(), 1024).unwrap();
 
         let actual_batch = record_batch_reader
             .next()
@@ -1575,7 +1573,7 @@ mod tests {
         file
     }
 
-    fn roundtrip_opts(expected_batch: &RecordBatch, props: WriterProperties) -> File {
+    fn roundtrip_opts(expected_batch: &RecordBatch, props: WriterProperties) -> Bytes {
         roundtrip_opts_with_array_validation(expected_batch, props, |a, b| assert_eq!(a, b))
     }
 
@@ -1597,17 +1595,17 @@ mod tests {
         }
     }
 
-    fn one_column_roundtrip(values: ArrayRef, nullable: bool) -> Vec<File> {
+    fn one_column_roundtrip(values: ArrayRef, nullable: bool) -> Vec<Bytes> {
         one_column_roundtrip_with_options(RoundTripOptions::new(values, nullable))
     }
 
-    fn one_column_roundtrip_with_schema(values: ArrayRef, schema: SchemaRef) -> Vec<File> {
+    fn one_column_roundtrip_with_schema(values: ArrayRef, schema: SchemaRef) -> Vec<Bytes> {
         let mut options = RoundTripOptions::new(values, false);
         options.schema = schema;
         one_column_roundtrip_with_options(options)
     }
 
-    fn one_column_roundtrip_with_options(options: RoundTripOptions) -> Vec<File> {
+    fn one_column_roundtrip_with_options(options: RoundTripOptions) -> Vec<Bytes> {
         let RoundTripOptions {
             values,
             schema,
@@ -1662,7 +1660,7 @@ mod tests {
         files
     }
 
-    fn values_required<A, I>(iter: I) -> Vec<File>
+    fn values_required<A, I>(iter: I) -> Vec<Bytes>
     where
         A: From<Vec<I::Item>> + Array + 'static,
         I: IntoIterator,
@@ -1672,7 +1670,7 @@ mod tests {
         one_column_roundtrip(values, false)
     }
 
-    fn values_optional<A, I>(iter: I) -> Vec<File>
+    fn values_optional<A, I>(iter: I) -> Vec<Bytes>
     where
         A: From<Vec<Option<I::Item>>> + Array + 'static,
         I: IntoIterator,
@@ -1696,7 +1694,7 @@ mod tests {
     }
 
     fn check_bloom_filter<T: AsBytes>(
-        files: Vec<File>,
+        files: Vec<Bytes>,
         file_column: String,
         positive_values: Vec<T>,
         negative_values: Vec<T>,
@@ -1788,11 +1786,10 @@ mod tests {
         );
         let schema = Schema::new(vec![Field::new("col", values.data_type().clone(), true)]);
         let expected_batch = RecordBatch::try_new(Arc::new(schema), vec![values]).unwrap();
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
-        let mut writer =
-            ArrowWriter::try_new(file.try_clone().unwrap(), expected_batch.schema(), None)
-                .expect("Unable to write file");
+        let mut writer = ArrowWriter::try_new(&mut file, expected_batch.schema(), None)
+            .expect("Unable to write file");
         writer.write(&expected_batch).unwrap();
         writer.close().unwrap();
     }
@@ -2509,14 +2506,13 @@ mod tests {
             false,
         )]));
 
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
 
         let props = WriterProperties::builder()
             .set_max_row_group_size(200)
             .build();
 
-        let mut writer =
-            ArrowWriter::try_new(file.try_clone().unwrap(), schema.clone(), Some(props)).unwrap();
+        let mut writer = ArrowWriter::try_new(&mut file, schema.clone(), Some(props)).unwrap();
 
         for array in arrays {
             let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(array)]).unwrap();
@@ -2525,7 +2521,7 @@ mod tests {
 
         writer.close().unwrap();
 
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(file)).unwrap();
         assert_eq!(&row_group_sizes(builder.metadata()), &[200, 200, 50]);
 
         let batches = builder
@@ -2652,13 +2648,12 @@ mod tests {
         assert_eq!(actual, expected);
 
         // Write data
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
         let props = WriterProperties::builder()
             .set_max_row_group_size(6)
             .build();
 
-        let mut writer =
-            ArrowWriter::try_new(file.try_clone().unwrap(), schema, Some(props)).unwrap();
+        let mut writer = ArrowWriter::try_new(&mut file, schema, Some(props)).unwrap();
 
         for batch in batches {
             writer.write(batch).unwrap();
@@ -2669,7 +2664,7 @@ mod tests {
         // Should have written entire first batch and first row of second to the first row group
         // leaving a single row in the second row group
 
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file).unwrap();
+        let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(file)).unwrap();
         assert_eq!(&row_group_sizes(builder.metadata()), &[6, 1]);
 
         let batches = builder

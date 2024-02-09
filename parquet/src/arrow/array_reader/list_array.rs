@@ -261,6 +261,7 @@ mod tests {
     use arrow_data::ArrayDataBuilder;
     use arrow_schema::Fields;
     use std::sync::Arc;
+    use bytes::Bytes;
 
     fn list_type<OffsetSize: OffsetSizeTrait>(
         data_type: ArrowType,
@@ -547,13 +548,13 @@ mod tests {
 
         let arrow_schema = parquet_to_arrow_schema(schema.as_ref(), None).unwrap();
 
-        let file = tempfile::tempfile().unwrap();
+        let mut file = Vec::new();
         let props = WriterProperties::builder()
             .set_max_row_group_size(200)
             .build();
 
         let writer = ArrowWriter::try_new(
-            file.try_clone().unwrap(),
+            &mut file,
             Arc::new(arrow_schema),
             Some(props),
         )
@@ -561,7 +562,7 @@ mod tests {
         writer.close().unwrap();
 
         let file_reader: Arc<dyn FileReader> =
-            Arc::new(SerializedFileReader::new(file).unwrap());
+            Arc::new(SerializedFileReader::new(Bytes::from(file)).unwrap());
 
         let file_metadata = file_reader.metadata().file_metadata();
         let schema = file_metadata.schema_descr();
