@@ -659,7 +659,7 @@ impl<'a> GroupTypeBuilder<'a> {
 
 /// Basic type info. This contains information such as the name of the type,
 /// the repetition level, the logical type and the kind of the type (group, primitive).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BasicTypeInfo {
     name: String,
     repetition: Option<Repetition>,
@@ -1222,7 +1222,7 @@ fn from_thrift_helper(elements: &[SchemaElement], index: usize) -> Result<(usize
     // LogicalType is only present in v2 Parquet files. ConvertedType is always
     // populated, regardless of the version of the file (v1 or v2).
     let logical_type = element
-        .logical_type
+        .logicalType
         .as_ref()
         .map(|value| LogicalType::from(value.clone()));
 
@@ -1355,7 +1355,7 @@ fn to_thrift_helper(schema: &Type, elements: &mut Vec<SchemaElement>) {
                 } else {
                     None
                 },
-                logical_type: basic_info.logical_type().map(|value| value.into()),
+                logicalType: basic_info.logical_type().map(|value| value.into()),
             };
 
             elements.push(element);
@@ -1384,7 +1384,7 @@ fn to_thrift_helper(schema: &Type, elements: &mut Vec<SchemaElement>) {
                 } else {
                     None
                 },
-                logical_type: basic_info.logical_type().map(|value| value.into()),
+                logicalType: basic_info.logical_type().map(|value| value.into()),
             };
 
             elements.push(element);

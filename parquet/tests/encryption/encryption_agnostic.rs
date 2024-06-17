@@ -72,7 +72,7 @@ pub fn read_plaintext_footer_file_without_decryption_properties() {
 
     match record_reader.next() {
         Some(Err(ArrowError::ParquetError(s))) => {
-            assert!(s.contains("protocol error"));
+            assert!(s.contains("InvalidType"), "Unexpected error: {s}");
         }
         _ => {
             panic!("Expected ArrowError::ParquetError");

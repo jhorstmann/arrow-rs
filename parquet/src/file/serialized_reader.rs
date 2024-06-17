@@ -36,13 +36,10 @@ use crate::format::{PageHeader, PageLocation, PageType};
 use crate::record::reader::RowIter;
 use crate::record::Row;
 use crate::schema::types::Type as SchemaType;
-#[cfg(feature = "encryption")]
-use crate::thrift::TCompactSliceInputProtocol;
-use crate::thrift::TSerializable;
 use bytes::Bytes;
+use compact_thrift_runtime::CompactThriftProtocol;
 use std::collections::VecDeque;
 use std::{fs::File, io::Read, path::Path, sync::Arc};
-use thrift::protocol::TCompactInputProtocol;
 
 impl TryFrom<File> for SerializedFileReader<File> {
     type Error = ParquetError;
@@ -731,8 +728,7 @@ impl SerializedPageReaderContext {
         _page_index: usize,
         _dictionary_page: bool,
     ) -> Result<PageHeader> {
-        let mut prot = TCompactInputProtocol::new(input);
-        Ok(PageHeader::read_from_in_protocol(&mut prot)?)
+        Ok(PageHeader::read_thrift(input)?)
     }
 
     fn decrypt_page_data<T>(
@@ -1875,7 +1871,7 @@ mod tests {
         let ret = SerializedFileReader::new(Bytes::copy_from_slice(&data));
         assert_eq!(
             ret.err().unwrap().to_string(),
-            "Parquet error: Could not parse metadata: bad data"
+            "Parquet error: Could not parse metadata: InvalidType"
         );
     }
 

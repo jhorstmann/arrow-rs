@@ -48,7 +48,6 @@ arrow-ipc = { workspace = true, optional = true }
 object_store = { version = "0.12.0", default-features = false, optional = true }
 
 bytes = { version = "1.1", default-features = false, features = ["std"] }
-thrift = { version = "0.17", default-features = false }
 snap = { version = "1.0", default-features = false, optional = true }
 brotli = { version = "8.0", default-features = false, features = ["std"], optional = true }
 # To use `flate2` you must enable either the `flate2-zlib-rs` or `flate2-rust_backened` backends
@@ -72,6 +71,8 @@ half = { version = "2.1", default-features = false, features = ["num-traits"] }
 crc32fast = { version = "1.4.2", optional = true, default-features = false }
 simdutf8 = { workspace = true , optional = true }
 ring = { version = "0.17", default-features = false, features = ["std"], optional = true }
+
+compact-thrift-runtime = { version = "0.1.2" }
 
 [dev-dependencies]
 base64 = { version = "0.22", default-features = false, features = ["std"] }

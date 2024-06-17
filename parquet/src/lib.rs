@@ -177,5 +177,3 @@ experimental!(pub mod encryption);
 pub mod file;
 pub mod record;
 pub mod schema;
-
-pub mod thrift;

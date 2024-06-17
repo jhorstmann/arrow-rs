@@ -98,7 +98,7 @@ fn test_arrow_gh_41317() {
     let err = read_file("ARROW-GH-41317.parquet").unwrap_err();
     assert_eq!(
         err.to_string(),
-        "External: Parquet argument error: External: bad data"
+        "Parquet error: Could not parse metadata: InvalidType"
     );
 }
 
@@ -107,7 +107,7 @@ fn test_arrow_rs_gh_6229_dict_header() {
     let err = read_file("ARROW-RS-GH-6229-DICTHEADER.parquet").unwrap_err();
     assert_eq!(
         err.to_string(),
-        "External: Parquet argument error: Parquet error: Integer overflow: out of range integral type conversion attempted"
+        "External: Parquet argument error: External: InvalidType"
     );
 }
 

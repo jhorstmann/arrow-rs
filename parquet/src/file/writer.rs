@@ -19,14 +19,6 @@
 //! using row group writers and column writers respectively.
 
 use crate::bloom_filter::Sbbf;
-use crate::format as parquet;
-use crate::format::{ColumnIndex, OffsetIndex};
-use crate::thrift::TSerializable;
-use std::fmt::Debug;
-use std::io::{BufWriter, IoSlice, Read};
-use std::{io::Write, sync::Arc};
-use thrift::protocol::TCompactOutputProtocol;
-
 use crate::column::page_encryption::PageEncryptor;
 use crate::column::writer::{get_typed_column_writer_mut, ColumnCloseResult, ColumnWriterImpl};
 use crate::column::{
@@ -44,7 +36,13 @@ use crate::file::reader::ChunkReader;
 #[cfg(feature = "encryption")]
 use crate::file::PARQUET_MAGIC_ENCR_FOOTER;
 use crate::file::{metadata::*, PARQUET_MAGIC};
+use crate::format as parquet;
+use crate::format::{ColumnIndex, OffsetIndex};
 use crate::schema::types::{ColumnDescPtr, SchemaDescPtr, SchemaDescriptor, TypePtr};
+use compact_thrift_runtime::CompactThriftProtocol;
+use std::fmt::Debug;
+use std::io::{BufWriter, IoSlice, Read};
+use std::{io::Write, sync::Arc};
 
 /// A wrapper around a [`Write`] that keeps track of the number
 /// of bytes that have been written. The given [`Write`] is wrapped
@@ -908,8 +906,7 @@ impl<'a, W: Write> SerializedPageWriter<'a, W> {
                 page_encryptor.encrypt_page_header(&header, sink)?;
             }
             None => {
-                let mut protocol = TCompactOutputProtocol::new(&mut self.sink);
-                header.write_to_out_protocol(&mut protocol)?;
+                header.write_thrift(&mut self.sink)?;
             }
         }
         Ok(self.sink.bytes_written() - start_pos)

@@ -18,12 +18,12 @@
 //! Contains writer which writes arrow data into parquet data.
 
 use bytes::Bytes;
+use compact_thrift_runtime::CompactThriftProtocol;
 use std::io::{Read, Write};
 use std::iter::Peekable;
 use std::slice::Iter;
 use std::sync::{Arc, Mutex};
 use std::vec::IntoIter;
-use thrift::protocol::TCompactOutputProtocol;
 
 use arrow_array::cast::AsArray;
 use arrow_array::types::*;
@@ -49,7 +49,6 @@ use crate::file::properties::{WriterProperties, WriterPropertiesPtr};
 use crate::file::reader::{ChunkReader, Length};
 use crate::file::writer::{SerializedFileWriter, SerializedRowGroupWriter};
 use crate::schema::types::{ColumnDescPtr, SchemaDescriptor};
-use crate::thrift::TSerializable;
 use levels::{calculate_array_levels, ArrayLevels};
 
 mod byte_array;
@@ -512,7 +511,6 @@ impl PageWriter for ArrowPageWriter {
         let page_header = page.to_thrift_header();
         let header = {
             let mut header = Vec::with_capacity(1024);
-
             match self.page_encryptor_mut() {
                 Some(page_encryptor) => {
                     page_encryptor.encrypt_page_header(&page_header, &mut header)?;
@@ -521,8 +519,7 @@ impl PageWriter for ArrowPageWriter {
                     }
                 }
                 None => {
-                    let mut protocol = TCompactOutputProtocol::new(&mut header);
-                    page_header.write_to_out_protocol(&mut protocol)?;
+                    page_header.write_thrift(&mut header)?;
                 }
             };
 
@@ -1411,9 +1408,6 @@ fn get_fsb_array_slice(
 mod tests {
     use super::*;
 
-    use std::fs::File;
-    use std::io::Seek;
-
     use crate::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
     use crate::arrow::ARROW_SCHEMA_META_KEY;
     use crate::column::page::{Page, PageReader};
@@ -1421,7 +1415,6 @@ mod tests {
     use crate::file::reader::SerializedPageReader;
     use crate::format::PageHeader;
     use crate::schema::types::ColumnPath;
-    use crate::thrift::TCompactSliceInputProtocol;
     use arrow::datatypes::ToByteSlice;
     use arrow::datatypes::{DataType, Schema};
     use arrow::error::Result as ArrowResult;
@@ -1430,8 +1423,11 @@ mod tests {
     use arrow::{array::*, buffer::Buffer};
     use arrow_buffer::{i256, IntervalDayTime, IntervalMonthDayNano, NullBuffer};
     use arrow_schema::Fields;
+    use compact_thrift_runtime::CompactThriftInputSlice;
     use half::f16;
     use num::{FromPrimitive, ToPrimitive};
+    use std::fs::File;
+    use std::io::Seek;
 
     use crate::basic::Encoding;
     use crate::data_type::AsBytes;
@@ -3932,8 +3928,8 @@ mod tests {
 
         // decode first page header
         let first_page = &buf[4..];
-        let mut prot = TCompactSliceInputProtocol::new(first_page);
-        let hdr = PageHeader::read_from_in_protocol(&mut prot).unwrap();
+        let mut prot = CompactThriftInputSlice::new(first_page);
+        let hdr = PageHeader::read_thrift(&mut prot).unwrap();
         let stats = hdr.data_page_header.unwrap().statistics;
 
         assert!(stats.is_none());
@@ -3966,8 +3962,8 @@ mod tests {
 
         // decode first page header
         let first_page = &buf[4..];
-        let mut prot = TCompactSliceInputProtocol::new(first_page);
-        let hdr = PageHeader::read_from_in_protocol(&mut prot).unwrap();
+        let mut prot = CompactThriftInputSlice::new(first_page);
+        let hdr = PageHeader::read_thrift(&mut prot).unwrap();
         let stats = hdr.data_page_header.unwrap().statistics;
 
         let stats = stats.unwrap();
@@ -4018,8 +4014,8 @@ mod tests {
 
         // decode first page header
         let first_page = &buf[4..];
-        let mut prot = TCompactSliceInputProtocol::new(first_page);
-        let hdr = PageHeader::read_from_in_protocol(&mut prot).unwrap();
+        let mut prot = CompactThriftInputSlice::new(first_page);
+        let hdr = PageHeader::read_thrift(&mut prot).unwrap();
         let stats = hdr.data_page_header.unwrap().statistics;
         assert!(stats.is_some());
         let stats = stats.unwrap();
@@ -4031,8 +4027,8 @@ mod tests {
 
         // check second page now
         let second_page = &prot.as_slice()[hdr.compressed_page_size as usize..];
-        let mut prot = TCompactSliceInputProtocol::new(second_page);
-        let hdr = PageHeader::read_from_in_protocol(&mut prot).unwrap();
+        let mut prot = CompactThriftInputSlice::new(second_page);
+        let hdr = PageHeader::read_thrift(&mut prot).unwrap();
         let stats = hdr.data_page_header.unwrap().statistics;
         assert!(stats.is_some());
         let stats = stats.unwrap();

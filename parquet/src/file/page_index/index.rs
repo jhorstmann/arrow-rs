@@ -289,7 +289,10 @@ impl<T: ParquetValueType> NativeIndex<T> {
             .map(|hists| hists.concat());
 
         ColumnIndex::new(
-            self.indexes.iter().map(|x| x.min().is_none()).collect(),
+            self.indexes
+                .iter()
+                .map(|x| x.min().is_none())
+                .collect::<Vec<_>>(),
             min_values,
             max_values,
             self.boundary_order,

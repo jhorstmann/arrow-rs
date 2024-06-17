@@ -17,12 +17,12 @@
 
 //! Common Parquet errors and macros.
 
+#[cfg(feature = "arrow")]
+use arrow_schema::ArrowError;
+use compact_thrift_runtime::ThriftError;
 use core::num::TryFromIntError;
 use std::error::Error;
 use std::{cell, io, result, str};
-
-#[cfg(feature = "arrow")]
-use arrow_schema::ArrowError;
 
 /// Parquet error enumeration
 // Note: we don't implement PartialEq as the semantics for the
@@ -101,8 +101,8 @@ impl From<snap::Error> for ParquetError {
     }
 }
 
-impl From<thrift::Error> for ParquetError {
-    fn from(e: thrift::Error) -> ParquetError {
+impl From<ThriftError> for ParquetError {
+    fn from(e: ThriftError) -> ParquetError {
         ParquetError::External(Box::new(e))
     }
 }

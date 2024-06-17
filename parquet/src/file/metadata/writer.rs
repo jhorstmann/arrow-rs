@@ -34,10 +34,9 @@ use crate::format::{AesGcmV1, ColumnCryptoMetaData};
 use crate::format::{ColumnChunk, ColumnIndex, FileMetaData, OffsetIndex, RowGroup};
 use crate::schema::types;
 use crate::schema::types::{SchemaDescPtr, SchemaDescriptor, TypePtr};
-use crate::thrift::TSerializable;
+use compact_thrift_runtime::CompactThriftProtocol;
 use std::io::Write;
 use std::sync::Arc;
-use thrift::protocol::TCompactOutputProtocol;
 
 /// Writes `crate::file::metadata` structures to a thrift encoded byte stream
 ///
@@ -134,7 +133,7 @@ impl<'a, W: Write> ThriftMetadataWriter<'a, W> {
         // Even if the column has an undefined sort order, such as INTERVAL, this
         // is still technically the defined TYPEORDER so it should still be set.
         let column_orders = (0..self.schema_descr.num_columns())
-            .map(|_| crate::format::ColumnOrder::TYPEORDER(crate::format::TypeDefinedOrder {}))
+            .map(|_| crate::format::ColumnOrder::TYPE_ORDER(crate::format::TypeDefinedOrder {}))
             .collect();
         // This field is optional, perhaps in cases where no min/max fields are set
         // in any Statistics or ColumnIndex object in the whole file.
@@ -428,9 +427,11 @@ struct MetadataObjectWriter {
 
 impl MetadataObjectWriter {
     #[inline]
-    fn write_object(object: &impl TSerializable, sink: impl Write) -> Result<()> {
-        let mut protocol = TCompactOutputProtocol::new(sink);
-        object.write_to_out_protocol(&mut protocol)?;
+    fn write_object<'a>(
+        object: &impl CompactThriftProtocol<'a>,
+        mut sink: impl Write,
+    ) -> Result<()> {
+        object.write_thrift(&mut sink)?;
         Ok(())
     }
 }
