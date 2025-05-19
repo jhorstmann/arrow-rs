@@ -999,21 +999,13 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
 
                 if max_rep_level > 0 {
                     buffer.extend_from_slice(
-                        &self.encode_levels_v1(
-                            Encoding::RLE,
-                            &self.rep_levels_sink[..],
-                            max_rep_level,
-                        )[..],
+                        &self.encode_levels_v1(&self.rep_levels_sink[..], max_rep_level)[..],
                     );
                 }
 
                 if max_def_level > 0 {
                     buffer.extend_from_slice(
-                        &self.encode_levels_v1(
-                            Encoding::RLE,
-                            &self.def_levels_sink[..],
-                            max_def_level,
-                        )[..],
+                        &self.encode_levels_v1(&self.def_levels_sink[..], max_def_level)[..],
                     );
                 }
 
@@ -1214,8 +1206,8 @@ impl<'a, E: ColumnValueEncoder> GenericColumnWriter<'a, E> {
 
     /// Encodes definition or repetition levels for Data Page v1.
     #[inline]
-    fn encode_levels_v1(&self, encoding: Encoding, levels: &[i16], max_level: i16) -> Vec<u8> {
-        let mut encoder = LevelEncoder::v1(encoding, max_level, levels.len());
+    fn encode_levels_v1(&self, levels: &[i16], max_level: i16) -> Vec<u8> {
+        let mut encoder = LevelEncoder::v1(max_level, levels.len());
         encoder.put(levels);
         encoder.consume()
     }

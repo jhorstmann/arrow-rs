@@ -19,22 +19,16 @@ use std::mem;
 
 use super::rle::RleEncoder;
 
-use crate::basic::Encoding;
 use crate::data_type::AsBytes;
-use crate::util::bit_util::{ceil, num_required_bits, BitWriter};
+use crate::util::bit_util::num_required_bits;
 
 /// Computes max buffer size for level encoder/decoder based on encoding, max
 /// repetition/definition level and number of total buffered values (includes null
 /// values).
 #[inline]
-pub fn max_buffer_size(encoding: Encoding, max_level: i16, num_buffered_values: usize) -> usize {
+fn max_rle_buffer_size(max_level: i16, num_buffered_values: usize) -> usize {
     let bit_width = num_required_bits(max_level as u64);
-    match encoding {
-        Encoding::RLE => RleEncoder::max_buffer_size(bit_width, num_buffered_values),
-        #[allow(deprecated)]
-        Encoding::BIT_PACKED => ceil(num_buffered_values * bit_width as usize, 8),
-        _ => panic!("Unsupported encoding type {encoding}"),
-    }
+    RleEncoder::max_buffer_size(bit_width, num_buffered_values)
 }
 
 /// Encoder for definition/repetition levels.
@@ -42,42 +36,30 @@ pub fn max_buffer_size(encoding: Encoding, max_level: i16, num_buffered_values: 
 pub enum LevelEncoder {
     Rle(RleEncoder),
     RleV2(RleEncoder),
-    BitPacked(u8, BitWriter),
+    BitPacked, // only used if max_level is 0
 }
 
 impl LevelEncoder {
-    /// Creates new level encoder based on encoding, max level and underlying byte buffer.
-    /// For bit packed encoding it is assumed that buffer is already allocated with
-    /// `levels::max_buffer_size` method.
+    /// Creates new level encoder based RLE Encoding, or BITPACKED if the max_level is 0.
     ///
     /// Used to encode levels for Data Page v1.
-    ///
-    /// Panics, if encoding is not supported.
-    pub fn v1(encoding: Encoding, max_level: i16, capacity: usize) -> Self {
-        let capacity_bytes = max_buffer_size(encoding, max_level, capacity);
-        let mut buffer = Vec::with_capacity(capacity_bytes);
+    pub fn v1(max_level: i16, capacity: usize) -> Self {
         let bit_width = num_required_bits(max_level as u64);
-        match encoding {
-            Encoding::RLE => {
-                // Reserve space for length header
-                buffer.extend_from_slice(&[0; 4]);
-                LevelEncoder::Rle(RleEncoder::new_from_buf(bit_width, buffer))
-            }
-            #[allow(deprecated)]
-            Encoding::BIT_PACKED => {
-                // Here we set full byte buffer without adjusting for num_buffered_values,
-                // because byte buffer will already be allocated with size from
-                // `max_buffer_size()` method.
-                LevelEncoder::BitPacked(bit_width, BitWriter::new_from_buf(buffer))
-            }
-            _ => panic!("Unsupported encoding type {encoding}"),
+        if max_level > 0 {
+            let capacity_bytes = max_rle_buffer_size(max_level, capacity);
+            let mut buffer = Vec::with_capacity(capacity_bytes);
+            // Reserve space for length header
+            buffer.extend_from_slice(&[0; 4]);
+            LevelEncoder::Rle(RleEncoder::new_from_buf(bit_width, buffer))
+        } else {
+            LevelEncoder::BitPacked
         }
     }
 
     /// Creates new level encoder based on RLE encoding. Used to encode Data Page v2
     /// repetition and definition levels.
     pub fn v2(max_level: i16, capacity: usize) -> Self {
-        let capacity_bytes = max_buffer_size(Encoding::RLE, max_level, capacity);
+        let capacity_bytes = max_rle_buffer_size(max_level, capacity);
         let buffer = Vec::with_capacity(capacity_bytes);
         let bit_width = num_required_bits(max_level as u64);
         LevelEncoder::RleV2(RleEncoder::new_from_buf(bit_width, buffer))
@@ -97,12 +79,10 @@ impl LevelEncoder {
                 }
                 encoder.flush();
             }
-            LevelEncoder::BitPacked(bit_width, ref mut encoder) => {
-                for value in buffer {
-                    encoder.put_value(*value as u64, bit_width as usize);
-                    num_encoded += 1;
+            LevelEncoder::BitPacked => {
+                if cfg!(debug_assertions) {
+                    assert!(buffer.iter().all(|x| *x == 0));
                 }
-                encoder.flush();
             }
         }
         num_encoded
@@ -123,7 +103,19 @@ impl LevelEncoder {
                 encoded_data
             }
             LevelEncoder::RleV2(encoder) => encoder.consume(),
-            LevelEncoder::BitPacked(_, encoder) => encoder.consume(),
+            LevelEncoder::BitPacked => Vec::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::encodings::levels::LevelEncoder;
+
+    #[test]
+    fn test_v1_bitpacked() {
+        let mut encoder = LevelEncoder::v1(0, 33);
+        encoder.put(&[0; 33]);
+        assert_eq!(encoder.consume(), Vec::<u8>::default());
     }
 }
