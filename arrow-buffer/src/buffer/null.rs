@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::bit_iterator::{BitIndexIterator, BitIterator, BitSliceIterator};
+use crate::bit_iterator::{BitIndexIterator, BitSliceIterator};
 use crate::buffer::BooleanBuffer;
 use crate::{Buffer, MutableBuffer};
+use std::iter::{Map, RepeatN, Zip};
 
 /// A [`BooleanBuffer`] used to encode validity for Arrow arrays
 ///
@@ -174,7 +175,7 @@ impl NullBuffer {
     /// * `false` indicates that the corresponding value is NULL
     ///
     /// Note: [`Self::valid_indices`] will be significantly faster for most use-cases
-    pub fn iter(&self) -> BitIterator<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = bool> {
         self.buffer.iter()
     }
 
@@ -225,10 +226,11 @@ impl NullBuffer {
 
 impl<'a> IntoIterator for &'a NullBuffer {
     type Item = bool;
-    type IntoIter = BitIterator<'a>;
+    type IntoIter =
+        Map<Zip<std::ops::Range<usize>, RepeatN<*const u8>>, fn((usize, *const u8)) -> bool>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.buffer.iter()
+        self.buffer.into_iter()
     }
 }
 

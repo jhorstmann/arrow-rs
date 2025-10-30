@@ -16,12 +16,14 @@
 // under the License.
 
 use crate::bit_chunk_iterator::BitChunks;
-use crate::bit_iterator::{BitIndexIterator, BitIndexU32Iterator, BitIterator, BitSliceIterator};
+use crate::bit_iterator::{BitIndexIterator, BitIndexU32Iterator, BitSliceIterator};
 use crate::{
     BooleanBufferBuilder, Buffer, MutableBuffer, bit_util, buffer_bin_and, buffer_bin_or,
     buffer_bin_xor, buffer_unary_not,
 };
+use std::iter::{Map, RepeatN, Zip, repeat_n};
 
+use crate::bit_util::get_bit_raw;
 use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 /// A slice-able [`Buffer`] containing bit-packed booleans
@@ -199,7 +201,7 @@ impl BooleanBuffer {
     }
 
     /// Returns an iterator over the bits in this [`BooleanBuffer`]
-    pub fn iter(&self) -> BitIterator<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = bool> {
         self.into_iter()
     }
 
@@ -272,10 +274,22 @@ impl BitXor<&BooleanBuffer> for &BooleanBuffer {
 
 impl<'a> IntoIterator for &'a BooleanBuffer {
     type Item = bool;
-    type IntoIter = BitIterator<'a>;
+    // Once `impl Trait` in associated types is stable this should be replaced
+    // with the much simpler `impl Iterator<Item = bool>`.
+    type IntoIter =
+        Map<Zip<std::ops::Range<usize>, RepeatN<*const u8>>, fn((usize, *const u8)) -> bool>;
 
     fn into_iter(self) -> Self::IntoIter {
-        BitIterator::new(self.values(), self.offset, self.len)
+        #[inline]
+        fn get_bit_adapter((i, ptr): (usize, *const u8)) -> bool {
+            // Safety: this function should be marked unsafe, but that would prevent us from using
+            // it in the `map` method below. Since it is private inside `into_iter` that prevents
+            // others from using it in an unsafe way.
+            unsafe { get_bit_raw(ptr, i) }
+        }
+        (self.offset..self.offset + self.len)
+            .zip(repeat_n(self.buffer.as_ptr(), self.len))
+            .map(get_bit_adapter)
     }
 }
 
@@ -306,6 +320,8 @@ impl FromIterator<bool> for BooleanBuffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bit_iterator::BitIterator;
+    use std::iter::TrustedLen;
 
     #[test]
     fn test_boolean_new() {
@@ -436,5 +452,34 @@ mod tests {
         assert_eq!(buf.len(), 3);
         assert_eq!(buf.values().len(), 1);
         assert!(buf.value(0));
+    }
+
+    #[test]
+    fn test_boolean_iterator() {
+        let buffer = Buffer::from(&[0b00010010, 0b00100011, 0b00000101, 0b00010001, 0b10010011]);
+        let actual: Vec<_> = BooleanBuffer::new(buffer.clone(), 0, 5).iter().collect();
+        assert_eq!(actual, &[false, true, false, false, true]);
+
+        let actual: Vec<_> = BooleanBuffer::new(buffer.clone(), 4, 5).iter().collect();
+        assert_eq!(actual, &[true, false, false, false, true]);
+
+        let actual: Vec<_> = BooleanBuffer::new(buffer.clone(), 12, 14).iter().collect();
+        assert_eq!(
+            actual,
+            &[
+                false, true, false, false, true, false, true, false, false, false, false, false,
+                true, false
+            ]
+        );
+
+        assert_eq!(BooleanBuffer::new(buffer.clone(), 0, 0).iter().count(), 0);
+        assert_eq!(BooleanBuffer::new(buffer, 40, 0).iter().count(), 0);
+    }
+
+    #[test]
+    fn test_boolean_iter_exact() {
+        fn accept_exact(_iter: impl ExactSizeIterator<Item = bool>) {}
+
+        accept_exact(BooleanBuffer::new_unset(1).into_iter())
     }
 }
